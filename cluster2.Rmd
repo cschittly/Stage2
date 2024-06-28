@@ -1,0 +1,629 @@
+---
+title: "Cluster"
+output:
+  rmdformats::readthedown:
+    highlight: kate
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r }
+
+library(readxl)
+library(dplyr)
+library(tidyverse)
+library(missMDA)
+questionnaire <- read_excel("~/stage/Stage/questionnaire.xlsx")
+head(questionnaire)
+colnames(questionnaire)
+QPE4PL = questionnaire %>% select(- Individu, - Lycée, - Classe, - Sexe, - APSA) 
+
+nb <- estim_ncpPCA(QPE4PL)
+colonnesimputees <- imputePCA (QPE4PL, ncp=nb$ncp)
+QPE4PLw <- colonnesimputees$completeObs[, 1:50]
+QPE4PLm = as.data.frame(QPE4PLw)%>% select(-Q30,-Q34,-Q39,-Q40,-Q35, -Q14,-Q15,-Q6)
+QPst = as.data.frame(scale(QPE4PLm))
+
+
+table(questionnaire$Lycée, questionnaire$Classe) 
+table( questionnaire$Sexe,questionnaire$Classe)
+
+library(FactoMineR)
+library(factoextra)
+library(cluster)
+library(clValid)
+library(fpc)
+
+library(caret)
+
+
+
+
+
+```
+
+# Vérification nombre de cluster optimal
+```{r}
+# Use map_dbl to run many models with varying value of k (centers)
+tot_withinss <- map_dbl(1:10,  function(k){
+  model <- kmeans(x = QPst, centers = k)
+  model$tot.withinss
+})
+
+# Generate a data frame containing both k and tot_withinss
+elbow_df <- data.frame(
+  k = 1:10 ,
+  tot_withinss = tot_withinss
+)
+
+
+
+print(elbow_df)
+
+
+ggplot(elbow_df, aes(x = k, y = tot_withinss)) +
+  geom_line() +geom_text(aes(label = round(tot_withinss, 2)))+
+  scale_x_continuous(breaks = 1:10)+                     
+  labs(title = "Elbow Method for Optimal Number of Clusters", # Titre en anglais
+       x = "Number of Clusters (k)",                     # Étiquette de l'axe des x en anglais
+       y = "Total Within-Cluster Sum of Squares") 
+```
+On regarde la où il y a le coude à nouveau
+```{r}
+
+sil_width <- map_dbl(2:10,function(k){  
+  model <- pam(x = QPst, k = k)  
+  model$silinfo$avg.width})
+sil_df <- data.frame(  k =2:10,  sil_width = sil_width)
+print(sil_df)    
+
+ggplot(sil_df, aes(x = k, y = sil_width))+  geom_line()+  scale_x_continuous(breaks =2:10)
+```
+
+Ici on regarde l'endroit le plus haut $k=2$
+
+
+# 4 clusters
+
+ 
+```{r}
+res.PCA<-PCA(QPst,ncp=Inf, scale.unit=FALSE,graph=FALSE)
+res.HCPC<-HCPC(res.PCA,nb.clust=4,consol=TRUE,graph=FALSE)
+plot.HCPC(res.HCPC,choice='tree',title='Arbre hiérarchique')
+plot.HCPC(res.HCPC,choice='map',draw.tree=FALSE,title='Plan factoriel')
+
+QPst_numeric <- QPst
+QPst_numeric[] <- lapply(QPst_numeric, function(x) as.numeric(as.character(x)))
+
+
+# Calculer les distances
+dist_matrix <- dist(QPst_numeric)
+
+# Vérifiez et, si nécessaire, convertissez les clusters en vecteur numérique
+clusters <- as.numeric(res.HCPC$data.clust$clust)
+
+# Calculer les indices de qualité
+sil <- silhouette(clusters, dist_matrix)
+dunnIndex <- dunn(clusters = clusters, Data = QPst_numeric)
+dbIndex <- clusterSim::index.DB(QPst_numeric, clusters)$DB
+chIndex <- cluster.stats(dist_matrix, clusters)$ch
+
+# Afficher les résultats
+cat("Indice de Silhouette:\n")
+print(summary(sil))
+cat("Coefficient de Dunn:\n")
+print(dunnIndex)
+cat("Indice de Davies-Bouldin:\n")
+print(dbIndex)
+cat("Indice de Calinski-Harabasz:\n")
+print(chIndex)
+
+# Visualiser les silhouettes
+plot(sil)
+
+
+
+```
+
+# 3 Clusters
+
+
+```{r}
+res.PCA<-PCA(QPst,ncp=Inf, scale.unit=FALSE,graph=FALSE)
+res.HCPC<-HCPC(res.PCA,nb.clust=3,consol=TRUE,graph=FALSE)
+plot.HCPC(res.HCPC,choice='tree',title='Arbre hiérarchique')
+plot.HCPC(res.HCPC,choice='map',draw.tree=FALSE,title='Plan factoriel')
+
+
+# Assurez-vous que vos données sont au format numérique
+QPst_numeric <- QPst
+QPst_numeric[] <- lapply(QPst_numeric, function(x) as.numeric(as.character(x)))
+
+# Exécuter l'ACP et le clustering hiérarchique
+res.PCA <- PCA(QPst_numeric, ncp = Inf, scale.unit = FALSE, graph = FALSE)
+res.HCPC <- HCPC(res.PCA, nb.clust = 3, consol = TRUE, graph = FALSE)
+
+# Calculer les distances
+dist_matrix <- dist(QPst_numeric)
+
+# Vérifiez et, si nécessaire, convertissez les clusters en vecteur numérique
+clusters <- as.numeric(res.HCPC$data.clust$clust)
+
+# Calculer les indices de qualité
+sil <- silhouette(clusters, dist_matrix)
+dunnIndex <- dunn(clusters = clusters, Data = QPst_numeric)
+dbIndex <- clusterSim::index.DB(QPst_numeric, clusters)$DB
+chIndex <- cluster.stats(dist_matrix, clusters)$ch
+
+# Afficher les résultats
+cat("Indice de Silhouette:\n")
+print(summary(sil))
+cat("Coefficient de Dunn:\n")
+print(dunnIndex)
+cat("Indice de Davies-Bouldin:\n")
+print(dbIndex)
+cat("Indice de Calinski-Harabasz:\n")
+print(chIndex)
+
+# Visualiser les silhouettes
+plot(sil)
+
+
+
+
+```
+
+# 2 Clusters
+ 
+```{r}
+res.PCA<-PCA(QPst,ncp=Inf, scale.unit=FALSE,graph=FALSE)
+res.HCPC<-HCPC(res.PCA,nb.clust=2,consol=TRUE,graph=FALSE)
+plot.HCPC(res.HCPC,choice='tree',title='Arbre hiérarchique')
+plot.HCPC(res.HCPC,choice='map',draw.tree=FALSE,title='Plan factoriel')
+
+QPst_numeric <- QPst
+QPst_numeric[] <- lapply(QPst_numeric, function(x) as.numeric(as.character(x)))
+
+
+# Calculer les distances
+dist_matrix <- dist(QPst_numeric)
+
+# Vérifiez et, si nécessaire, convertissez les clusters en vecteur numérique
+clusters <- as.numeric(res.HCPC$data.clust$clust)
+
+# Calculer les indices de qualité
+sil <- silhouette(clusters, dist_matrix)
+dunnIndex <- dunn(clusters = clusters, Data = QPst_numeric)
+dbIndex <- clusterSim::index.DB(QPst_numeric, clusters)$DB
+chIndex <- cluster.stats(dist_matrix, clusters)$ch
+
+# Afficher les résultats
+cat("Indice de Silhouette:\n")
+print(summary(sil))
+cat("Coefficient de Dunn:\n")
+print(dunnIndex)
+cat("Indice de Davies-Bouldin:\n")
+print(dbIndex)
+cat("Indice de Calinski-Harabasz:\n")
+print(chIndex)
+
+# Visualiser les silhouettes
+plot(sil)
+
+
+```
+
+```{r}
+library(FactoMineR)
+res.PCA<-PCA(QPst,ncp=Inf, scale.unit=FALSE,graph=FALSE)
+res.HCPC<-HCPC(res.PCA,nb.clust=2,consol=TRUE,graph=FALSE)
+plot.HCPC(res.HCPC,choice='tree',title='Arbre hiérarchique')
+plot.HCPC(res.HCPC,choice='map',draw.tree=FALSE,title='Plan factoriel')
+
+cluster <- res.HCPC$data.clust$clust 
+
+print(cluster)
+
+library(dplyr)
+donneeaveccluster = data.frame(QPE4PLm, Cluster = cluster)
+
+
+questiwclust = data.frame(questionnaire, Cluster = cluster)
+
+
+# Filtrer les données pour les clusters 1 et 2
+cluster1 <- donneeaveccluster[donneeaveccluster$Cluster == 1, ]
+cluster2 <- donneeaveccluster[donneeaveccluster$Cluster == 2, ]
+
+
+
+
+# Calculer les statistiques descriptives pour chaque cluster
+mean_stats_cluster1 <- apply(cluster1[, -ncol(cluster1)], 2, summary)
+mean_stats_cluster2 <- apply(cluster2[, -ncol(cluster2)], 2, summary)
+
+# Afficher les statistiques descriptives pour chaque cluster
+print("Statistiques descriptives pour le cluster 1:")
+print(mean_stats_cluster1)
+
+print("Statistiques descriptives pour le cluster 2:")
+print(mean_stats_cluster2)
+
+#juste Q26 où la moyenne du cluster 2 est plus petite que cluster 1
+
+library(stats)
+med_stats_cluster1 <- apply(cluster1[, -ncol(cluster1)], 2, median)
+med_stats_cluster2 <- apply(cluster2[, -ncol(cluster2)], 2, median)
+
+
+
+
+print(med_stats_cluster1)
+print(med_stats_cluster2)
+
+#Les médiannes du cluster 1 sont toute plus petites que celle du cluster 2
+
+
+```
+# Test de wilcoxon
+
+```{r}
+
+
+
+
+# Effectuer un test de Wilcoxon-Mann-Whitney pour comparer deux colonnes spécifiques entre les clusters, ici Q28
+wilcoxon_test_result <- wilcox.test(donneeaveccluster$Q28[donneeaveccluster$Cluster == 1],                               donneeaveccluster$Q28[donneeaveccluster$Cluster == 2])
+
+# Afficher les résultats du test de Wilcoxon-Mann-Whitney
+print("Résultat du test de Wilcoxon-Mann-Whitney pour comparer les colonnes Q28 entre les clusters :")
+print(wilcoxon_test_result)
+
+
+```
+Ici quand on compare on ne peut pas le faire sur les moyenne car on a pas normalité, donc on peut regarder les médianes et faire un test sur les médianes pour mesurer le fait quels sont bien différentes.
+
+
+Hypothèse nulle (\(H_0\)) : les deux échantillons proviennent de la même population (c'est-à-dire, les distributions des deux échantillons sont identiques).
+
+
+ Hypothèse alternative (\(H_1\)) : les deux échantillons proviennent de populations différentes (c'est-à-dire, les distributions des deux échantillons sont différentes).
+
+
+Si p vaue $<$ $\alpha$ alors on rejette $H_0$
+
+
+
+```{r}
+sampled_df <- donneeaveccluster[sample(493, 100), ]
+
+wilcoxon_test_result2 <- wilcox.test(sampled_df$Q28[sampled_df$Cluster == 1], sampled_df$Q28[sampled_df$Cluster == 2])
+print(wilcoxon_test_result2)
+
+```
+
+
+# Modification des données 
+```{r}
+library(caret)
+library(tidyverse)
+dummy_vars1 <- dummyVars(~ Sexe, data = questionnaire)
+data_encoded1 <- predict(dummy_vars1, newdata = questionnaire) %>% as_tibble()
+
+
+dummy_vars2 <- dummyVars(~ Classe, data = questionnaire)
+data_encoded2 <- predict(dummy_vars2, newdata = questionnaire) %>% as_tibble()
+
+
+dummy_vars3 <- dummyVars(~ Lycée, data = questionnaire)
+data_encoded3 <- predict(dummy_vars3, newdata = questionnaire) %>% as_tibble()
+
+
+
+dummy_vars4 <- dummyVars(~ APSA, data = questionnaire)
+data_encoded4 <- predict(dummy_vars4, newdata = questionnaire) %>% as_tibble()
+
+#ca met des 1 et des 0 dans des nouvelles colonnes, partaique après pour retrouver effectif en sommant sur les colonnes
+
+tt =data.frame(QPE4PLm, data_encoded1,data_encoded2, data_encoded3, data_encoded4)
+```
+
+
+```{r}
+
+
+#creer dataframe avec le cluster et les var qualtitatve
+
+donneewinfo = data.frame(Cluster = cluster,  data_encoded3, data_encoded2, data_encoded4, data_encoded1)
+
+#juste les var qualitative
+
+donneewinfos = data.frame(  data_encoded3, data_encoded2, data_encoded4, data_encoded1)
+
+#Permet de voir la fréquence des variables qualitative par cluster
+somme_par_colonne <- donneewinfo%>%
+  group_by(Cluster) %>%
+  summarise(across(everything(), sum))
+#permet de voir les effectifs sur l'ensemble des données
+fr = colSums(donneewinfos)
+#permet de faire les tableaux de contingence après
+print(t(somme_par_colonne))
+```
+
+
+
+
+# G-Test pour voir lien entre cluster et caractéristique
+
+```{r}
+#test du chi2 d'independance lycée et cluster
+
+
+library(DescTools)
+
+effectifs <-t( matrix(c(32, 35, 44, 82,  # Cluster 1
+                      36, 53, 72, 139), #cluster 2
+                    nrow = 2, byrow = TRUE))
+
+# Nommer les lignes et colonnes de la table
+colnames(effectifs) <- c("Cluster 1", "Cluster 2")
+rownames(effectifs) <- c("Lycée Crap", "Lycée Dide", "Lycée Pasq", "Lycée VH")
+
+# Afficher la table de contingence
+print(effectifs)
+chi2_test <- chisq.test(effectifs)
+effectifs_attendus <- chi2_test$expected
+print(effectifs_attendus)
+#regle cochran vérifié
+
+# Effectuer le test du chi-deux
+
+print(chi2_test)
+
+library(DescTools)
+#Gtest mieux car se base pas sur l'approximation du logarithme et gagne en précision
+GTest(effectifs)
+
+```
+
+\[
+H_0 : \text{Les deux variables sont indépendantes.}
+\]
+
+\[
+H_1 : \text{Les deux variables ne sont pas indépendantes.}
+\]
+
+On conserve $H_0$ car la pvalue est plus grande que $\alpha$ = 0.05. Donc les variables sont indépendantes.
+
+```{r}
+#pour les classes
+
+effectifs <-t( matrix(c(89, 48, 49, 7,  # Cluster 1
+                      109, 85, 92, 14), 
+                    nrow = 2, byrow = TRUE))
+
+# Nommer les lignes et colonnes de la table
+colnames(effectifs) <- c("Cluster 1", "Cluster 2")
+rownames(effectifs) <- c("1e", "2nd", "Term", "TermPro")
+
+# Afficher la table de contingence
+print(effectifs)
+chi2_test <- chisq.test(effectifs)
+effectifs_attendus <- chi2_test$expected
+print(effectifs_attendus)
+#regle cochran vérifié
+
+# Effectuer le test du chi-deux
+
+print(chi2_test)
+
+GTest(effectifs)
+```
+
+
+Variables indépendantes
+
+```{r}
+effectifs <-t( matrix(c(1, 12,
+                      12, 24,
+                      22, 18,
+                      2, 6,
+                      23, 21,
+                      13, 10,
+                      7, 41,
+                      30, 39,
+                      9, 21,
+                      51, 68,
+                      5, 17,
+                      18, 23), 
+                    nrow = 12, byrow = TRUE))
+
+# Nommer les lignes et colonnes de la table
+colnames(effectifs) <- c("Acrosport", "Badminton", "Basket", "Crosstraining", 
+                         "Danse", "DF", "Escalade", "Musculation", 
+                         "Sauvetage", "Step", "TT", "Volley.ball")
+rownames(effectifs) <- c("Cluster 1", "Cluster 2")
+
+# Vérification des effectifs totaux par cluster
+totals <- rowSums(effectifs)
+print("Effectifs totaux par cluster :")
+print(totals)
+
+# Normalisation des effectifs
+normalized_effectifs <- sweep(effectifs, 1, totals, FUN = "/")
+print("Effectifs normalisés :")
+print(normalized_effectifs)
+
+# Afficher la table de contingence
+print(effectifs)
+chi2_test <- chisq.test(effectifs)
+effectifs_attendus <- chi2_test$expected
+print(effectifs_attendus)
+#regle cochran pas vérifié
+
+
+
+fisher_test <- fisher.test(effectifs, simulate.p.value = TRUE)
+print(fisher_test)
+
+```
+On peut voir les données normlisé pour comparer les clusters dans un premiers temps.
+
+pas indépendance
+
+```{r}
+# Effectuer un test du \(\chi^2\) pour obtenir les valeurs attendues
+chi2_test <- chisq.test(effectifs)
+expected <- chi2_test$expected
+
+# Calcul des résidus standardisés
+residuals <- (effectifs - expected) / sqrt(expected)
+
+# Affichage des résidus standardisés
+print("Résidus standardisés :")
+print(residuals)
+
+# Visualisation des résidus standardisés sous forme de heatmap
+heatmap(residuals, Rowv = NA, Colv = NA, col = colorRampPalette(c("blue", "white", "red"))(100), scale = "none", margins = c(10, 10))
+
+# Visualisation avec ggplot2
+# Convertir le tableau de contingence en data.frame pour ggplot2
+df <- as.data.frame(as.table(effectifs))
+
+# Graphique en barre empilé
+ggplot(df, aes(x = Var2, y = Freq, fill = Var1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  labs(x = "APSA", y = "Fréquence", fill = "Cluster") +
+  theme_minimal()
+
+
+
+```
+
+
+On regarde les residuals, En général, les résidus standardisés dont la valeur absolue est supérieure à 2 (ou inférieure à -2) indiquent des écarts significatifs. Ces valeurs suggèrent une sur-représentation ou une sous-représentation statistiquement significative.
+Pour les valeurs de résidus standardisés comprises entre -2 et 2, les écarts ne sont pas considérés comme significatifs. on en conclu que  les élèves du Cluster 2 semblent préférer "Escalade" et "Acrosport" par rapport à ceux du Cluster 1.
+
+
+```{r}
+
+library(car)
+library(DescTools)
+effectifs <- matrix(c(103, 171 , # Cluster 1
+                      90, 129), 
+                    nrow = 2, byrow = TRUE)
+
+#plus simple au finale
+tab <- table(questiwclust$Sexe, questiwclust$Cluster)
+G_sq_test <- GTest(tab)
+print(G_sq_test)
+
+# Nommer les lignes et colonnes de la table
+rownames(effectifs) <- c("Cluster 1", "Cluster 2")
+colnames(effectifs) <- c("F", "M")
+
+# Afficher la table de contingence
+print(effectifs)
+chi2_test <- chisq.test(effectifs)
+effectifs_attendus <- chi2_test$expected
+print(effectifs_attendus)
+#regle cochran vérifié
+
+# Effectuer le test du chi-deux
+
+print(chi2_test)
+
+
+GTest(effectifs)
+```
+```{r}
+tab <- table(questiwclust$Sexe, questiwclust$APSA, questiwclust$Cluster)
+
+print(tab)
+
+#permet d'afficher les effectifs de sexe en fonction d'APSA pour le cluster 1 puis le cluster 2
+
+
+#dans le cluster 1
+tab_cluster1 <- tab[,,1]
+chi_sq_test_cluster1 <- chisq.test(tab_cluster1)
+chi_sq_test_cluster1$expected
+print(chi_sq_test_cluster1)
+fisher_test_cluster1 <- fisher.test(tab_cluster1,simulate.p.value=TRUE)
+print(fisher_test_cluster1)
+
+#dans le cluster 2
+tab_cluster2 <- tab[,,2]
+chi_sq_test_cluster2 <- chisq.test(tab_cluster2)
+chi_sq_test_cluster2$expected
+# plutot fisher
+fisher_test_cluster2 <- fisher.test(tab_cluster2,simulate.p.value=TRUE)
+print(fisher_test_cluster2)
+
+```
+J'arrive a die que peu importe le cluster il n'y a pas indépendance entre APSA et Sexe.
+
+```{r}
+effectifs <-t( matrix(c(0, 9,
+                      5, 6,
+                      13, 9,
+                      0, 4,
+                      11, 16,
+                      3, 5,
+                      6, 23,
+                      21, 21,
+                      0, 7,
+                      30, 51,
+                      4, 9,
+                      10, 11,
+                      1, 3,
+                      7, 18,
+                      9, 9,
+                      2, 2,
+                      12,5 ,
+                      10,5 ,
+                      1, 18,
+                      9, 18,
+                      9, 14,
+                      21, 17,
+                      1, 8,
+                      8, 12), 
+                    nrow = 24, byrow = TRUE))
+
+# Nommer les lignes et colonnes de la table
+colnames(effectifs) <- c("FAcrosport", "Badminton", "Basket", "Crosstraining", 
+                         "Danse", "DF", "Escalade", "Musculation", 
+                         "Sauvetage", "Step", "TT", "Volley.ball", "GAcrosport", "Badminton", "Basket", "Crosstraining", 
+                         "Danse", "DF", "Escalade", "Musculation", 
+                         "Sauvetage", "Step", "TT", "Volley.ball")
+rownames(effectifs) <- c("Cluster 1", "Cluster 2")
+
+# Vérification des effectifs totaux par cluster
+totals <- rowSums(effectifs)
+print("Effectifs totaux par cluster :")
+print(totals)
+
+# Normalisation des effectifs
+normalized_effectifs <- sweep(effectifs, 1, totals, FUN = "/")
+print("Effectifs normalisés :")
+print(normalized_effectifs)
+
+# Afficher la table de contingence
+print(effectifs)
+chi2_test <- chisq.test(effectifs)
+effectifs_attendus <- chi2_test$expected
+print(effectifs_attendus)
+#regle cochran pas vérifié
+
+
+
+fisher_test <- fisher.test(effectifs, simulate.p.value = TRUE)
+print(fisher_test)
+```
+
+Il n'y a pas independance entre sexe+APSA et Cluster
+
+
+
