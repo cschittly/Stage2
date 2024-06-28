@@ -1,0 +1,583 @@
+---
+title: "Compte rendu"
+output:
+  rmdformats::readthedown:
+    highlight: kate
+editor_options: 
+  markdown: 
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Mise en place des données
+
+
+```{r}
+library(readxl)
+library(dplyr)
+library(tidyverse)
+library(missMDA)
+questionnaire <- read_excel("~/stage/Stage/questionnaire.xlsx")
+head(questionnaire)
+
+QPE4PL = questionnaire %>% select(-Individu, -Lycée, -Classe, -Sexe, -APSA)
+
+
+
+nb <- estim_ncpPCA(QPE4PL)
+colonnesimputees <- imputePCA (QPE4PL, ncp=nb$ncp)
+QPE4PLm <- colonnesimputees$completeObs[, 1:50]
+
+library(psych)
+QPE4PLlesson =QPE4PLm[,1:23]
+QPE4PLimpact = QPE4PLm[,24:50]
+
+```
+
+# Dimentionnalité
+
+```{r}
+lessonct <- na.omit(as.data.frame(scale(QPE4PLlesson))) #données centré réduite
+QPE4PLl_EFA_cor <- cor(lessonct, use = "pairwise.complete.obs")
+vp = eigen(QPE4PLl_EFA_cor)$values
+
+
+scree_data <- data.frame(
+  Facteur = 1:length(vp),
+  Valeur_Propre = vp
+)
+
+ggplot(scree_data, aes(x = Facteur, y = Valeur_Propre)) +
+  geom_point() +
+  geom_line() +
+  geom_text(aes(label = round(Valeur_Propre, 2)), vjust = -0.5, hjust = 0.5) + 
+  labs(x = "Nombre de facteurs", y = "Valeurs Propres", title = "Scree Plot") +
+  scale_x_continuous(limits = c(1,10 )) +  # Ajustez les limites de l'axe x selon vos besoins
+  theme_minimal()
+
+
+```
+
+```{r}
+
+impct <- na.omit(as.data.frame(scale(na.omit(QPE4PLimpact)))) #données centré réduite
+QPE4PLi_EFA_cor <- cor(impct, use = "pairwise.complete.obs")
+vp = eigen(QPE4PLi_EFA_cor)$values
+#Méthode 1
+
+
+scree_data <- data.frame(
+  Facteur = 1:length(vp),
+  Valeur_Propre = vp
+)
+
+ggplot(scree_data, aes(x = Facteur, y = Valeur_Propre)) +
+  geom_point() +
+  geom_line() +
+  geom_text(aes(label = round(Valeur_Propre, 2)), vjust = -0.5, hjust = 0.5) + 
+  labs(x = "Nombre de facteurs", y = "Valeurs Propres", title = "Scree Plot") +
+  scale_x_continuous(limits = c(1,10 )) +  # Ajustez les limites de l'axe x selon vos besoins
+  theme_minimal()
+```
+
+# EFA lesson
+
+
+```{r}
+N <- nrow(QPE4PLlesson)
+
+indices <- seq(1, N)
+
+# Indices pairs et impairs
+indices_EFAl <- indices[indices %% 2 == 0]
+indices_CFAl <- indices[indices %% 2 != 0]
+
+# Diviser le jeu de données en utilisant ces indices
+QPE4Ll_EFA <- QPE4PLlesson[indices_EFAl, ]
+QPE4Ll_CFA <- QPE4PLlesson[indices_CFAl, ]
+
+
+```
+On selectionne une personne sur deux, ca biaise pas car ca permets d'avoir autant de personne de même lycée dans chaque partie.
+```{r}
+#On pose le modèle avec 5 facteur pour la partie lesson
+EFA_modelth<- fa(QPE4Ll_EFA, nfactors = 5)
+#On regarde les charges factoriels
+EFA_modelth$loadings
+#On retir la question 14 (22 on peut pas car sinon pas 4 items par facteurs)
+QPs =QPE4Ll_EFA[,-14]
+library(psych)
+# Exclure la question 14 du jeu de données
+QPs_without_14 <- QPE4Ll_EFA[ , -14]
+
+# Créer un nouveau modèle EFA avec 5 facteurs
+EFA_modelth2 <- fa(QPs_without_14, nfactors = 5)
+
+# Afficher les charges factorielles
+print(EFA_modelth2$loadings)
+```
+On enlève la question 14 car admet des charges sur plusieurs facteurs
+
+# CFA lesson
+
+On part du modèle sans la question 14
+
+```{r}
+library(lavaan)
+library(semPlot)
+modellesson <- " 
+    APP =~ Q1 + Q2 + Q3 + Q4 
+    ENS =~ Q5 + Q6 + Q7 + Q8 + Q9
+    CLIM =~ Q10 + Q11 + Q12 + Q13 
+    COMO =~ Q15 + Q16 + Q17 + Q18 + Q19
+    CORE =~ Q20 + Q21 + Q22 + Q23 
+"
+#On pose le modèle
+fitlesson <- cfa(model = modellesson, data = QPE4Ll_CFA,estimator = "MLM")
+#Permet de creer le diagramme
+semPaths(fitlesson, "est", "std.lv", layout = "tree", whatLabels = "std.lv", style = "lisrel")
+#permet de voir toute les statistiques et charge factoreil
+summary(fitlesson, standardized = TRUE, fit.measures= TRUE, rsquare = TRUE)
+# Raccourci pour voir directement les indices qu'on veut plutot que de regarder dans le summary
+fitMeasures(fitlesson, c("rmsea", "srmr", "cfi", "tli"))
+
+loadings <- standardizedSolution(fitlesson)
+
+# Filtrer uniquement les charges factorielles (lambdas)
+loadings <- loadings[loadings$op == "=~", ]
+
+# Afficher les charges factorielles
+loadings[, c("lhs", "rhs", "est.std")]
+
+```
+Le modèle est pas mal.
+On enlève la question 15 car la corrélation est très faible avec le facteur correspondant.
+
+
+
+```{r}
+
+library(lavaan)
+library(semPlot)
+modellesson2 <- " 
+    APP =~ Q1 + Q2 + Q3 + Q4 
+    ENS =~ Q5 + Q6 + Q7 + Q8 + Q9
+    CLIM =~ Q10 + Q11 + Q12 + Q13 
+    COMO =~  Q16 + Q17 + Q18 + Q19
+    CORE =~ Q20 + Q21 + Q22 + Q23 
+"
+
+fitlesson2 <- cfa(model = modellesson2, data = QPE4Ll_CFA,estimator = "MLM")
+semPaths(fitlesson2, "est", "std", layout = "tree", whatLabels = "est.std", style = "lisrel")
+summary(fitlesson2, standardized = TRUE, fit.measures= TRUE, rsquare = TRUE)
+fitMeasures(fitlesson2, c("rmsea", "srmr", "cfi", "tli"))
+
+```
+On enlève la question 6
+
+```{r}
+
+library(lavaan)
+library(semPlot)
+library(fpc)
+
+modellesson3 <- " 
+    APP =~ Q1 + Q2 + Q3 + Q4 
+    ENS =~ Q5  + Q7 + Q8 + Q9
+    CLIM =~ Q10 + Q11 + Q12 + Q13
+    COMO =~ Q16+  Q17 + Q18 + Q19
+    CORE =~ Q20 + Q21 + Q22 + Q23 
+"
+
+fitlesson3 <- cfa(model = modellesson3, data = QPE4Ll_CFA,estimator = "MLM")
+semPaths(fitlesson3, "est", "std", layout = "tree", whatLabels = "est.std", style = "lisrel", edge.color = "black", rotation = 4)
+
+summary(fitlesson3, standardized = TRUE, fit.measures= TRUE, rsquare = TRUE)
+
+fitMeasures(fitlesson3, c("rmsea", "srmr", "cfi", "tli"))
+
+library(semTools)
+reliability(fitlesson3)
+
+```
+
+
+
+On arrive au meilleur modèle avec de bon indices
+
+# Impact
+
+
+```{r}
+
+N <- nrow(QPE4PLimpact)
+indices <- seq(1, N)
+
+# Indices pairs et impairs
+indices_EFA <- indices[indices %% 2 == 0]
+indices_CFA <- indices[indices %% 2 != 0]
+
+
+
+# Diviser le jeu de données en utilisant ces indices
+QPE4Li_EFA <- QPE4PLimpact[indices_EFA, ]
+QPE4Li_CFA <- QPE4PLimpact[indices_CFA, ]
+```
+
+
+
+
+
+
+```{r}
+
+library(tidyverse)
+library(dplyr)
+
+#On creer le modèle avec 4 facteurs
+EFA_modelth<- fa(QPE4Li_EFA, nfactors = 4)
+#je regarde les charges factoriel, et je retire une à une les questions et regarde à nouveau les charges factoreil jusqu'a ce qu'il n'y est plus de questions répartie sur plusieurs facteusr
+EFA_modelth$loadings
+# Je le transforme en dataframe pour pouvoir utliser la library dplyr
+QPE4Li_EFA_df <- as.data.frame(QPE4Li_EFA)
+
+# Load the dplyr library
+library(dplyr)
+
+QPs <- QPE4Li_EFA_df %>% select( -Q30, -Q34 , -Q40, -Q39)
+EFA_modelth2<- fa(QPs, nfactors = 4)
+EFA_modelth2$loadings
+```
+
+# CFA impact
+
+On part du modèle sans les questions 30, 34, 39, 40
+
+
+```{r}
+model2 <- '
+PHY =~ Q24 + Q25+ Q26+Q27 #Physique
+PSY=~ Q28+ Q29+ Q31+ Q32+ Q33+ Q35 #Psychologique
+SOC=~  Q36 +Q37+ Q38+ Q41 +Q42+ Q43+ Q44+ Q45 #Sociale
+COG=~ Q46+ Q47+ Q48+ Q49+ Q50 #Cognitive '
+library(lavaan)
+#On créer le modèle
+fit <- cfa(model2, data = QPE4Li_CFA,estimator = "MLM")
+library(semPlot)
+#On creer le diagramme
+semPaths(fit, "std", layout = "tree", whatLabels = "std", edge.label.cex = 0.8, sizeMan = 5, sizeLat = 7)
+# Résumé des résultats
+summary(fit, fit.measures = TRUE, standardized = TRUE)
+loadings <- standardizedSolution(fit)
+
+# Filtrer uniquement les charges factorielles (lambdas)
+loadings <- loadings[loadings$op == "=~", ]
+
+# Afficher les charges factorielles
+loadings[, c("lhs", "rhs", "est.std")]
+#On regarde les indices statistiques
+fitMeasures(fit, c("rmsea", "srmr", "cfi", "tli","BIC"))
+library(semTools)
+reliability(fit)
+
+```
+
+
+
+Bon modèle d'après les indices, On enlève Q35
+
+```{r}
+model3 <- '
+PHY =~ Q24 + Q25+ Q26+Q27 #Physique
+PSY=~ Q28+ Q29+ Q31+ Q32+ Q33  #Psychologique
+SOC=~ Q36+ Q37+ Q38+ Q41 +Q42+ Q43+ Q44+ Q45 #Sociale
+COG=~ Q46+ Q47+ Q48+ Q49+ Q50 #Cognitive '
+library(lavaan)
+fit2 <- cfa(model3, data = QPE4Li_CFA,estimator = "MLM")
+library(semPlot)
+semPaths(fit2, "est", "std", layout = "tree", whatLabels = "est.std", style = "lisrel", edge.color = "black", rotation = 4)
+# Résumé des résultats pour voir charge factirel
+summary(fit2, fit.measures = TRUE, standardized = TRUE)
+# Obtenir les indices de modification
+
+
+fitMeasures(fit2, c("rmsea", "srmr", "cfi", "tli","BIC"))
+
+reliability(fit2)
+```
+
+
+
+
+# Matrice de corrélation
+
+```{r}
+
+library(corrplot)
+baseimputee <- cbind(questionnaire[, 1:5], QPE4PLm) 
+
+
+
+
+
+#création des scores des deux questionnaires
+#création des scores des deux questionnaires
+#QPE4PElesson
+
+# Sélectionner les colonnes correspondant aux questions de chaque dimension
+dimension1 <- baseimputee[, 6:9]
+dimension2 <- baseimputee[, 10:14] %>% select(-Q6)
+dimension3 <- baseimputee[, 15:19] %>% select(-Q14)
+dimension4 <- baseimputee[, 20:23]%>% select(-Q15)
+dimension5 <- baseimputee[, 24:28]
+
+# Calculer les scores pour chaque dimension
+baseimputee$score_objet_apprentissage <- rowSums(dimension1)
+baseimputee$score_gestion_enseignement <- rowSums(dimension2)
+baseimputee$score_climat_enseignement <- rowSums(dimension3)
+baseimputee$score_activation_cognitivo_motrice <- rowSums(dimension4)
+baseimputee$score_activation_cognitive_reflexive <- rowSums(dimension5)
+
+# Calculer le score total (score_lesson) en additionnant les scores de chaque dimension
+baseimputee$score_lesson <- rowSums(baseimputee[, c("score_objet_apprentissage", "score_gestion_enseignement", "score_climat_enseignement", "score_activation_cognitivo_motrice", "score_activation_cognitive_reflexive")])
+
+#QPE4PLimpact
+
+# Sélectionner les colonnes correspondant aux questions de chaque dimension pour la deuxième partie
+score_physique <- baseimputee[, 29:32]
+score_psycho <- baseimputee[, 33:41] %>% select(-Q30, -Q34, -Q35)
+score_sociale <- baseimputee[, 42:51] %>% select(-Q39,-Q40)
+score_cognitive <- baseimputee[, 52:55]
+
+# Calculer les scores pour chaque dimension de la deuxième partie
+baseimputee$score_physique <- rowSums(score_physique)
+baseimputee$score_psycho <- rowSums(score_psycho)
+baseimputee$score_sociale <- rowSums(score_sociale)
+baseimputee$score_cognitive <- rowSums(score_cognitive)
+
+# Calculer le score total pour la deuxième partie (score_impact)
+baseimputee$score_impact <- rowSums(baseimputee[, c("score_physique", "score_psycho", "score_sociale", "score_cognitive")])
+
+# Recherche de corrélation
+# Entre le QPE4PLlesson et le QPE4PLimpact
+
+# Sélectionner les variables pour la matrice de corrélation
+variables_a_correler1 <- baseimputee[, c("score_lesson", "score_impact"
+)]
+
+# Calculer la matrice de corrélation
+matrice_correlation1 <- cor(variables_a_correler1)
+
+# Entre chaque dimension de chaque partie du questionnaire
+
+# Sélectionner les variables pour la matrice de corrélation
+variables_a_correler2 <- baseimputee[, c(
+  "score_objet_apprentissage", "score_gestion_enseignement", "score_climat_enseignement", "score_activation_cognitivo_motrice", "score_activation_cognitive_reflexive", "score_lesson"
+)]
+
+# Calculer la matrice de corrélation
+matrice_correlation2 <- cor(variables_a_correler2)
+
+# Afficher les matrices de corrélation
+print(matrice_correlation1)
+corrplot (matrice_correlation2, method='number')
+
+
+#meilleur affichage des corrélations, à voir s'il faut renommer pour remplacer sans avoir de doublons de noms de variables
+# Sélectionner les variables pour chaque partie
+partie1 <- baseimputee[, c("score_objet_apprentissage", "score_gestion_enseignement", "score_climat_enseignement", "score_activation_cognitivo_motrice", "score_activation_cognitive_reflexive", "score_lesson")]
+partie2 <- baseimputee[, c("score_physique", "score_psycho", 
+                           "score_sociale", "score_cognitive","score_impact")]
+
+
+
+# à modifier remplacer verifier si les variables ne sont pas doublées
+# Sélectionner les variables pour chaque partie
+partie1 <- baseimputee[, c("score_objet_apprentissage", "score_gestion_enseignement", "score_climat_enseignement", "score_activation_cognitivo_motrice", "score_activation_cognitive_reflexive","score_lesson")]
+partie2 <- baseimputee[, c("score_physique", "score_psycho", 
+                           "score_sociale", "score_cognitive","score_impact")]
+
+# Calculer la matrice de corrélation entre les deux parties
+matrice_correlation_entre_partiess <- cor(partie1, partie2, method = "spearman")
+
+corrplot(matrice_correlation_entre_partiess, method = "number")
+
+
+#permet de dire que cette corrélation est significative
+
+cor.test(baseimputee$score_impact, baseimputee$score_lesson, method = "spearman")
+
+
+
+
+```
+
+
+# Structural equation modeling
+
+
+```{r}
+modellesson <- ' 
+    APP =~ Q1 + Q2 + Q3 + Q4 
+    ENS =~ Q5 + Q7 + Q8 + Q9
+    CLIM =~ Q10 + Q11 + Q12 + Q13
+    COMO =~  Q16 + Q17 + Q18 + Q19
+    CORE =~ Q20 + Q21 + Q22 + Q23 
+ '
+# permet de poser le modèle
+lesson.fit <- cfa(model = modellesson, data = QPE4PLlesson,estimator = "MLM")
+
+#permet de regarder toute les stat et charges factoreil
+summary(lesson.fit, standardized=T, fit.measures = TRUE)
+#affiche indice
+fitMeasures(lesson.fit, c("rmsea", "srmr", "cfi", "tli"))
+# permet de voir les modifications 
+# j'utlise ~~ qui sert à dire que deux questions sont corrélé
+modificationindices(lesson.fit, sort = T)
+```
+```{r}
+modellesson2 <- ' 
+    APP =~ Q1 + Q2 + Q3 + Q4 
+    ENS =~  Q5+ Q7 + Q8 + Q9
+    CLIM =~ Q10 + Q11 + Q12 + Q13
+    COMO =~  Q16 + Q17 + Q18 + Q19
+    CORE =~ Q20 + Q21 + Q22 + Q23 
+    Q19	~~	Q20
+    Q3	~~	Q4
+ '
+
+lesson.fit2 <- cfa(model = modellesson2, data = QPE4PLlesson, estimator = "MLM")
+summary(lesson.fit2,standardized=T, fit.measures = TRUE)
+semPaths(lesson.fit2,  whatLabels = "std.all",edge.label.cex = 0.5, rotation =4, edge.color ="blue")
+
+fitMeasures(lesson.fit2, c("rmsea", "srmr", "cfi", "tli"))
+```
+
+Voici le modèle avec les corrélations
+
+On fait pareil pour la partie lesson
+
+```{r}
+model2 <- "
+PHY =~ Q24 + Q25+ Q26+Q27 #Physique
+PSY=~ Q28+ Q29+ Q31+ Q32+ Q33 #Psychologique
+SOC=~ Q36+ Q37+ Q38+ Q41 +Q42+ Q43+ Q44+ Q45 #Sociale
+COG=~ Q46+ Q47+ Q48+ Q49+ Q50 #Cognitive
+"
+
+
+lesson.fit <- cfa(model = model2, data = QPE4PLimpact, estimator = "MLM")
+fitMeasures(lesson.fit, c("rmsea", "srmr", "cfi", "tli", "bic"))
+summary(lesson.fit, standardized=T, fit.measures = TRUE)
+semPaths(lesson.fit, whatLabels = "std.all", edge.label.cex = 0.5, rotation =2, edge.color ="blue")
+modificationindices(lesson.fit, sort = T)
+```
+
+```{r}
+model3 <- "
+PHY =~ Q24 + Q25+ Q26+Q27 #Physique
+PSY=~ Q28+ Q29+ Q31+ Q32+ Q33 #Psychologique
+SOC=~  Q36+Q37+ Q38+ Q41 +Q42+ Q43+ Q44+ Q45 #Sociale
+COG=~ Q46+ Q47+ Q48+ Q49+ Q50 #Cognitive
+Q41	~~	Q42
+Q26~~Q27
+Q49~~Q50
+"
+
+lesson.fit2 <- cfa(model = model3, data = QPE4PLimpact, estimator = "MLM")
+fitMeasures(lesson.fit2, c("rmsea", "srmr", "cfi", "tli", "bic"))
+summary(lesson.fit2, standardized=T, fit.measures = TRUE)
+```
+
+# modèle tout
+
+Je mets tout ensemble pour créer un modèle qui relie tout les facteurs, tout comme la matrice des corrélation avec les score ca va permettre de regarder les relations entre les facteurs 
+
+```{r}
+library(lavaan)
+modeletout= ' 
+    APP =~ Q1 + Q2 + Q3 + Q4
+    ENS =~  Q5 + Q7 + Q8 + Q9
+    CLIM =~ Q10 + Q11 + Q12 + Q13
+    COMO =~  Q16 + Q17 + Q18 + Q19
+    CORE =~ Q20 + Q21 + Q22 + Q23 
+    Q19 ~~ Q20
+    Q3 ~~ Q4
+    PHY =~ Q24 + Q25+ Q26+Q27 #Physique
+PSY=~ Q28+ Q29+ Q31+ Q32+ Q33 #Psychologique
+SOC=~ Q36+ Q37+ Q38+ Q41 +Q42+ Q43+ Q44+ Q45 #Sociale
+COG=~ Q46+ Q47+ Q48+ Q49+ Q50 #Cognitive
+Q41	~~	Q42
+Q26~~Q27
+Q49~~Q50
+ '
+
+lesson.fittt <- cfa(model = modeletout, data = QPE4PLm, estimator = "MLM")
+fitMeasures(lesson.fittt, c("rmsea", "srmr", "cfi", "tli", "bic"))
+summary(lesson.fittt, standardized=T, fit.measures = TRUE)
+
+
+
+semPaths(object = lesson.fittt,
+         layout = "tree",
+         rotation = 1,
+         whatLabels = "std",
+         edge.label.cex = 0.45,
+         edge.color = "black",
+         residuals = FALSE,
+         sizeLat = 5)
+
+```
+
+
+
+
+
+
+
+
+Rassemble les deux modèle pour étudier les corrélation entre facteurs (le sempaths permet de bien comprendre)
+On regrade alors les endroits comme APP ~~ ENS qui montre la relation entre apprentissage et enseignment dans le summary (~~ désigne la corrélation)
+
+
+On fait pareil mais en comparant la partie LESSON et IMPACT, je créér donc deux nouveaux facteurs pour relier les 5 facterus de lesson et les 4 de impact. Enseuite j'étudie dans le summary la relation LESSON et IMPACT
+
+```{r}
+library(lavaan)
+library(semPlot)
+modelett2= '    
+    APP =~ Q1 + Q2 + Q3 + Q4
+    ENS =~  Q5 + Q7 + Q8 + Q9
+    CLIM =~ Q10 + Q11 + Q12 + Q13
+    COMO =~   Q16 + Q17 + Q18 + Q19
+    CORE =~ Q20 + Q21 + Q22 + Q23 
+    Q19 ~~ Q20
+    Q3 ~~ Q4
+    LESSON =~ APP + ENS + CLIM + COMO + CORE
+    PHY =~ Q24 + Q25+ Q26+Q27 #Physique
+PSY=~ Q28+ Q29+ Q31+ Q32+ Q33 #Psychologique
+SOC=~ Q36+ Q37+ Q38+ Q41 +Q42+ Q43+ Q44+ Q45 #Sociale
+COG=~ Q46+ Q47+ Q48+ Q49+ Q50 #Cognitive
+Q41	~~	Q42
+Q26~~Q27
+Q49~~Q50
+IMPACT = ~ PHY + PSY + SOC + COG
+IMPACT ~ LESSON
+ '
+
+lesson.fittt <- cfa(model = modelett2, data = QPE4PLm, estimator = "MLM")
+fitMeasures(lesson.fittt, c("rmsea", "srmr", "cfi", "tli", "bic"))
+summary(lesson.fittt, standardized=T, fit.measures = TRUE)
+modificationindices(lesson.fittt, sort = T)
+semPaths(object = lesson.fittt,
+         layout = "tree",
+         rotation = 1,
+         whatLabels = "std",
+         edge.label.cex = 0.5,
+         what = "std",
+         residuals = F,
+         edge.color = "black")
+```
